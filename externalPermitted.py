@@ -3,153 +3,120 @@ import sys
 sys.path.append('/usr/lib/firemon/devpackfw/lib/python3.8/site-packages')
 try:
     import requests
-    import os
     import zipfile
+    import os
     import xml.etree.ElementTree as ET
-    import csv
     import re
-    from getpass import getpass
-    import urllib3
+    import csv
 except:
     try:
         sys.path.append('/usr/lib/firemon/devpackfw/lib/python3.9/site-packages')
         import requests
-        import os
         import zipfile
+        import os
         import xml.etree.ElementTree as ET
-        import csv
         import re
-        from getpass import getpass
-        import urllib3
+        import csv
     except:
         sys.path.append('/usr/lib/firemon/devpackfw/lib/python3.10/site-packages')
         import requests
-        import os
         import zipfile
+        import os
         import xml.etree.ElementTree as ET
-        import csv
         import re
-        from getpass import getpass
-        import urllib3
+        import csv
 
 # Suppress SSL warnings
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
-# Configuration
-DOMAIN_ID = 1
-
-# Function to authenticate and retrieve token
-def authenticate(server, username, password):
+def get_auth_token(server, username, password):
     url = f"https://{server}/securitymanager/api/authentication/login"
-    headers = {"Content-Type": "application/json"}
     payload = {"username": username, "password": password}
-    
+    headers = {"Content-Type": "application/json"}
     response = requests.post(url, json=payload, headers=headers, verify=False)
     response.raise_for_status()
-    return response.json().get("token")
+    return response.json()["token"]
 
-# Function to get devices in the specified group, paginated
-def get_devices_in_group(server, token, device_group_id):
-    headers = {
-        "X-FM-AUTH-Token": token,
-        "Accept": "application/json"
-    }
-    devices = []
-    page = 0
-    while True:
-        print(f"Fetching page {page + 1} of devices...")
-        url = f"https://{server}/securitymanager/api/domain/{DOMAIN_ID}/devicegroup/{device_group_id}/device?page={page}&pageSize=50"
-        response = requests.get(url, headers=headers, verify=False)
-        response.raise_for_status()
-        data = response.json()
-        devices.extend(data.get("results", []))
-        if len(data.get("results", [])) < 50:  # If fewer than 10 devices, last page
-            break
-        page += 1
-    print(f"Total devices fetched: {len(devices)}")
-    return devices
+def fetch_device_group(server, token, group_id, page):
+    url = f"https://{server}/securitymanager/api/device-groups/{group_id}/devices"
+    headers = {"X-FM-AUTH-Token": token, "Content-Type": "application/json"}
+    params = {"page": page, "size": 100}
+    response = requests.get(url, headers=headers, params=params, verify=False)
+    response.raise_for_status()
+    return response.json()
 
-# Function to export device configuration
 def export_device_config(server, token, device_id):
-    url = f"https://{server}/securitymanager/api/domain/{DOMAIN_ID}/device/{device_id}/export/config"
-    headers = {
-        "X-FM-AUTH-Token": token,
-        "Accept": "application/octet-stream"
-    }
+    url = f"https://{server}/securitymanager/api/devices/{device_id}/config/export"
+    headers = {"X-FM-AUTH-Token": token, "Content-Type": "application/json"}
     response = requests.get(url, headers=headers, verify=False)
     response.raise_for_status()
     return response.content
 
-# Function to extract non-RFC1918 IP entries from XML
-def extract_non_rfc1918_ips_from_xml(xml_content):
+def extract_non_rfc1918_ips_from_permitted(xml_content):
     rfc1918_prefixes = ["10.", "172.16.", "192.168."]
     valid_ip_pattern = re.compile(r"^\d{1,3}(\.\d{1,3}){3}(?:/\d{1,2})?$")
-    tree = ET.ElementTree(ET.fromstring(xml_content))
     non_rfc1918_ips = []
 
-    for entry in tree.findall(".//entry"):
-        name = entry.get("name", "")
-        if valid_ip_pattern.match(name) and not any(name.startswith(prefix) for prefix in rfc1918_prefixes):
-            non_rfc1918_ips.append(name)
+    tree = ET.ElementTree(ET.fromstring(xml_content))
+    permitted_ip_section = tree.findall(".//permitted-ip/entry")
+
+    for entry in permitted_ip_section:
+        ip_address = entry.get("name", "")
+        if valid_ip_pattern.match(ip_address) and not any(ip_address.startswith(prefix) for prefix in rfc1918_prefixes):
+            non_rfc1918_ips.append(ip_address)
     return non_rfc1918_ips
 
-# Main function
 def main():
-    # Prompt for user inputs
-    server = input("Enter server (default: localhost): ").strip() or "localhost"
-    username = input("Enter username: ").strip()
-    password = getpass("Enter password: ").strip()
-    device_group_id = input("Enter device group ID: ").strip()
-    
-    try:
-        token = authenticate(server, username, password)
-        print("Authentication successful.")
-    except Exception as e:
-        print(f"Authentication failed: {e}")
-        return
+    server = input("Enter FireMon server (default: localhost): ") or "localhost"
+    username = input("Enter username: ")
+    password = input("Enter password: ")
+    group_id = input("Enter Device Group ID: ")
 
-    try:
-        devices = get_devices_in_group(server, token, device_group_id)
-        output_csv = "non_rfc1918_entries.csv"
-        
-        with open(output_csv, mode="w", newline="") as csvfile:
-            csvwriter = csv.writer(csvfile)
-            csvwriter.writerow(["Device Name", "Management IP", "Non-RFC1918 IPs"])
-            
-            for device in devices:
+    token = get_auth_token(server, username, password)
+    print(f"Authenticated to {server} successfully.")
+
+    output_file = "non_rfc1918_ips.csv"
+    with open(output_file, mode="w", newline="") as csvfile:
+        csvwriter = csv.writer(csvfile)
+        csvwriter.writerow(["Device Name", "Management IP", "Non-RFC1918 IPs"])
+        page = 0
+        while True:
+            print(f"Fetching device group page {page}...")
+            devices = fetch_device_group(server, token, group_id, page)
+            if not devices["content"]:
+                break
+
+            for device in devices["content"]:
                 device_id = device["id"]
                 device_name = device.get("name", "Unknown")
-                management_ip = device.get("managementIp", "Unknown")
-                
-                print(f"Processing device: {device_name} ({management_ip})")
-                
+                management_ip = device.get("managementIP", "Unknown")
+
+                print(f"Processing device {device_name} ({device_id})...")
                 try:
-                    # Step 1: Export and save device config
                     config_zip_content = export_device_config(server, token, device_id)
                     zip_path = f"{device_name}_config.zip"
                     with open(zip_path, "wb") as zipfile_handle:
                         zipfile_handle.write(config_zip_content)
-                    
-                    # Step 2: Extract the ZIP
+
                     extract_dir = f"./{device_name}_config"
                     with zipfile.ZipFile(zip_path, "r") as zip_ref:
                         zip_ref.extractall(extract_dir)
-                    
-                    # Step 3: Locate and parse XML
+
                     xml_file_path = os.path.join(extract_dir, "running")
                     if os.path.exists(xml_file_path):
                         with open(xml_file_path, "r") as xml_file:
                             xml_content = xml_file.read()
-                            non_rfc1918_ips = extract_non_rfc1918_ips_from_xml(xml_content)
+                            non_rfc1918_ips = extract_non_rfc1918_ips_from_permitted(xml_content)
                             if non_rfc1918_ips:
                                 csvwriter.writerow([device_name, management_ip, ", ".join(non_rfc1918_ips)])
+                            else:
+                                print(f"No valid non-RFC1918 IPs found for {device_name}.")
                     else:
-                        print(f"XML file not found for {device_name}")
-                    
-                    # Step 4: Clean up files
+                        print(f"XML file not found for {device_name}.")
+
                     os.remove(zip_path)
                     os.system(f"rm -rf {extract_dir}")
-                
+
                 except requests.exceptions.HTTPError as http_err:
                     if http_err.response.status_code == 404:
                         print(f"Device {device_name} ({device_id}) not found. Skipping...")
@@ -157,10 +124,10 @@ def main():
                         print(f"HTTP error for device {device_name} ({device_id}): {http_err}")
                 except Exception as e:
                     print(f"Error processing device {device_name} ({device_id}): {e}")
-        
-        print(f"Non-RFC1918 IPs saved to {output_csv}")
-    except Exception as e:
-        print(f"Error: {e}")
+
+            page += 1
+
+    print(f"Processing complete. Results saved to {output_file}.")
 
 if __name__ == "__main__":
     main()
