@@ -7,6 +7,7 @@ try:
     import zipfile
     import xml.etree.ElementTree as ET
     import csv
+    import re
     from getpass import getpass
     import urllib3
 except:
@@ -17,6 +18,7 @@ except:
         import zipfile
         import xml.etree.ElementTree as ET
         import csv
+        import re
         from getpass import getpass
         import urllib3
     except:
@@ -26,6 +28,7 @@ except:
         import zipfile
         import xml.etree.ElementTree as ET
         import csv
+        import re
         from getpass import getpass
         import urllib3
 
@@ -45,16 +48,24 @@ def authenticate(server, username, password):
     response.raise_for_status()
     return response.json().get("token")
 
-# Function to get devices in the specified group
+# Function to get devices in the specified group, paginated
 def get_devices_in_group(server, token, device_group_id):
-    url = f"https://{server}/securitymanager/api/domain/{DOMAIN_ID}/devicegroup/{device_group_id}/device"
     headers = {
         "X-FM-AUTH-Token": token,
         "Accept": "application/json"
     }
-    response = requests.get(url, headers=headers, verify=False)
-    response.raise_for_status()
-    return response.json().get("results", [])
+    devices = []
+    page = 0
+    while True:
+        url = f"https://{server}/securitymanager/api/domain/{DOMAIN_ID}/devicegroup/{device_group_id}/device?page={page}&pageSize=10"
+        response = requests.get(url, headers=headers, verify=False)
+        response.raise_for_status()
+        data = response.json()
+        devices.extend(data.get("results", []))
+        if len(data.get("results", [])) < 10:  # If fewer than 10 devices, last page
+            break
+        page += 1
+    return devices
 
 # Function to export device configuration
 def export_device_config(server, token, device_id):
@@ -67,17 +78,18 @@ def export_device_config(server, token, device_id):
     response.raise_for_status()
     return response.content
 
-# Function to extract non-RFC1918 entries from XML
-def extract_non_rfc1918_entries_from_xml(xml_content):
+# Function to extract non-RFC1918 IP entries from XML
+def extract_non_rfc1918_ips_from_xml(xml_content):
     rfc1918_prefixes = ["10.", "172.16.", "192.168."]
+    valid_ip_pattern = re.compile(r"^\d{1,3}(\.\d{1,3}){3}(?:/\d{1,2})?$")
     tree = ET.ElementTree(ET.fromstring(xml_content))
-    non_rfc1918_entries = []
+    non_rfc1918_ips = []
 
     for entry in tree.findall(".//entry"):
         name = entry.get("name", "")
-        if not any(name.startswith(prefix) for prefix in rfc1918_prefixes):
-            non_rfc1918_entries.append(name)
-    return non_rfc1918_entries
+        if valid_ip_pattern.match(name) and not any(name.startswith(prefix) for prefix in rfc1918_prefixes):
+            non_rfc1918_ips.append(name)
+    return non_rfc1918_ips
 
 # Main function
 def main():
@@ -100,7 +112,7 @@ def main():
         
         with open(output_csv, mode="w", newline="") as csvfile:
             csvwriter = csv.writer(csvfile)
-            csvwriter.writerow(["Device Name", "Management IP", "Non-RFC1918 Entries"])
+            csvwriter.writerow(["Device Name", "Management IP", "Non-RFC1918 IPs"])
             
             for device in devices:
                 device_id = device["id"]
@@ -125,8 +137,9 @@ def main():
                     if os.path.exists(xml_file_path):
                         with open(xml_file_path, "r") as xml_file:
                             xml_content = xml_file.read()
-                            non_rfc1918_entries = extract_non_rfc1918_entries_from_xml(xml_content)
-                            csvwriter.writerow([device_name, management_ip, ", ".join(non_rfc1918_entries)])
+                            non_rfc1918_ips = extract_non_rfc1918_ips_from_xml(xml_content)
+                            if non_rfc1918_ips:  # Only write to CSV if there are valid IPs
+                                csvwriter.writerow([device_name, management_ip, ", ".join(non_rfc1918_ips)])
                     else:
                         print(f"XML file not found for {device_name}")
                     
@@ -142,7 +155,7 @@ def main():
                 except Exception as e:
                     print(f"Error processing device {device_name} ({device_id}): {e}")
         
-        print(f"Non-RFC1918 entries saved to {output_csv}")
+        print(f"Non-RFC1918 IPs saved to {output_csv}")
     except Exception as e:
         print(f"Error: {e}")
 
