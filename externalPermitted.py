@@ -37,16 +37,16 @@ def get_auth_token(server, username, password):
     response.raise_for_status()
     return response.json()["token"]
 
-def fetch_device_group(server, token, group_id, page):
-    url = f"https://{server}/securitymanager/api/device-groups/{group_id}/devices"
+def fetch_device_group(server, token, domain_id, group_id, page):
+    url = f"https://{server}/securitymanager/api/domain/{domain_id}/device-groups/{group_id}/devices"
     headers = {"X-FM-AUTH-Token": token, "Content-Type": "application/json"}
     params = {"page": page, "size": 100}
     response = requests.get(url, headers=headers, params=params, verify=False)
     response.raise_for_status()
     return response.json()
 
-def export_device_config(server, token, device_id):
-    url = f"https://{server}/securitymanager/api/devices/{device_id}/config/export"
+def export_device_config(server, token, domain_id, device_id):
+    url = f"https://{server}/securitymanager/api/domain/{domain_id}/devices/{device_id}/config/export"
     headers = {"X-FM-AUTH-Token": token, "Content-Type": "application/json"}
     response = requests.get(url, headers=headers, verify=False)
     response.raise_for_status()
@@ -70,19 +70,20 @@ def main():
     server = input("Enter FireMon server (default: localhost): ") or "localhost"
     username = input("Enter username: ")
     password = input("Enter password: ")
+    domain_id = input("Enter Domain ID: ")
     group_id = input("Enter Device Group ID: ")
 
     token = get_auth_token(server, username, password)
     print(f"Authenticated to {server} successfully.")
 
-    output_file = "non_rfc1918_ips.csv"
+    output_file = "non_rfc1918_entries.csv"
     with open(output_file, mode="w", newline="") as csvfile:
         csvwriter = csv.writer(csvfile)
         csvwriter.writerow(["Device Name", "Management IP", "Non-RFC1918 IPs"])
         page = 0
         while True:
             print(f"Fetching device group page {page}...")
-            devices = fetch_device_group(server, token, group_id, page)
+            devices = fetch_device_group(server, token, domain_id, group_id, page)
             if not devices["content"]:
                 break
 
@@ -93,7 +94,7 @@ def main():
 
                 print(f"Processing device {device_name} ({device_id})...")
                 try:
-                    config_zip_content = export_device_config(server, token, device_id)
+                    config_zip_content = export_device_config(server, token, domain_id, device_id)
                     zip_path = f"{device_name}_config.zip"
                     with open(zip_path, "wb") as zipfile_handle:
                         zipfile_handle.write(config_zip_content)
