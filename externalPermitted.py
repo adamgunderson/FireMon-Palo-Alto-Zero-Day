@@ -90,7 +90,7 @@ def main():
     token = get_auth_token(server, username, password)
     print(f"Authenticated to {server} successfully.")
 
-    output_file = "non_rfc1918_ips.csv"
+    output_file = "non_rfc1918_entries.csv"
     with open(output_file, mode="w", newline="") as csvfile:
         csvwriter = csv.writer(csvfile)
         csvwriter.writerow(["Device Name", "Management IP", "Non-RFC1918 IPs"])
