@@ -58,12 +58,12 @@ def get_devices_in_group(server, token, device_group_id):
     page = 0
     while True:
         print(f"Fetching page {page + 1} of devices...")
-        url = f"https://{server}/securitymanager/api/domain/{DOMAIN_ID}/devicegroup/{device_group_id}/device?page={page}&pageSize=10"
+        url = f"https://{server}/securitymanager/api/domain/{DOMAIN_ID}/devicegroup/{device_group_id}/device?page={page}&pageSize=50"
         response = requests.get(url, headers=headers, verify=False)
         response.raise_for_status()
         data = response.json()
         devices.extend(data.get("results", []))
-        if len(data.get("results", [])) < 10:  # If fewer than 10 devices, last page
+        if len(data.get("results", [])) < 50:  # If fewer than 10 devices, last page
             break
         page += 1
     print(f"Total devices fetched: {len(devices)}")
