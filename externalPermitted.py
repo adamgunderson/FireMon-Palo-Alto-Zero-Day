@@ -121,7 +121,7 @@ def main():
                         zip_ref.extractall(f"./{device_name}_config")
                     
                     # Locate and parse XML
-                    xml_file_path = f"./{device_name}_config/running-config.xml"
+                    xml_file_path = f"./{device_name}_config/running"
                     if os.path.exists(xml_file_path):
                         with open(xml_file_path, "r") as xml_file:
                             xml_content = xml_file.read()
