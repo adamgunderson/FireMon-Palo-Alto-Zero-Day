@@ -108,29 +108,39 @@ def main():
                 management_ip = device.get("managementIp", "Unknown")
                 
                 print(f"Processing device: {device_name} ({management_ip})")
-                config_zip_content = export_device_config(server, token, device_id)
                 
-                # Save and extract ZIP
-                zip_path = f"{device_name}_config.zip"
-                with open(zip_path, "wb") as zipfile_handle:
-                    zipfile_handle.write(config_zip_content)
+                try:
+                    config_zip_content = export_device_config(server, token, device_id)
+                    
+                    # Save and extract ZIP
+                    zip_path = f"{device_name}_config.zip"
+                    with open(zip_path, "wb") as zipfile_handle:
+                        zipfile_handle.write(config_zip_content)
+                    
+                    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                        zip_ref.extractall(f"./{device_name}_config")
+                    
+                    # Locate and parse XML
+                    xml_file_path = f"./{device_name}_config/running-config.xml"
+                    if os.path.exists(xml_file_path):
+                        with open(xml_file_path, "r") as xml_file:
+                            xml_content = xml_file.read()
+                            non_rfc1918_entries = extract_non_rfc1918_entries_from_xml(xml_content)
+                            csvwriter.writerow([device_name, management_ip, ", ".join(non_rfc1918_entries)])
+                    else:
+                        print(f"XML file not found for {device_name}")
+                    
+                    # Clean up
+                    os.remove(zip_path)
+                    os.system(f"rm -rf ./{device_name}_config")
                 
-                with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                    zip_ref.extractall(f"./{device_name}_config")
-                
-                # Locate and parse XML
-                xml_file_path = f"./{device_name}_config/running-config.xml"
-                if os.path.exists(xml_file_path):
-                    with open(xml_file_path, "r") as xml_file:
-                        xml_content = xml_file.read()
-                        non_rfc1918_entries = extract_non_rfc1918_entries_from_xml(xml_content)
-                        csvwriter.writerow([device_name, management_ip, ", ".join(non_rfc1918_entries)])
-                else:
-                    print(f"XML file not found for {device_name}")
-                
-                # Clean up
-                os.remove(zip_path)
-                os.system(f"rm -rf ./{device_name}_config")
+                except requests.exceptions.HTTPError as http_err:
+                    if http_err.response.status_code == 404:
+                        print(f"Device {device_name} ({device_id}) not found. Skipping...")
+                    else:
+                        print(f"HTTP error for device {device_name} ({device_id}): {http_err}")
+                except Exception as e:
+                    print(f"Error processing device {device_name} ({device_id}): {e}")
         
         print(f"Non-RFC1918 entries saved to {output_csv}")
     except Exception as e:
