@@ -57,6 +57,7 @@ def get_devices_in_group(server, token, device_group_id):
     devices = []
     page = 0
     while True:
+        print(f"Fetching page {page + 1} of devices...")
         url = f"https://{server}/securitymanager/api/domain/{DOMAIN_ID}/devicegroup/{device_group_id}/device?page={page}&pageSize=10"
         response = requests.get(url, headers=headers, verify=False)
         response.raise_for_status()
@@ -65,6 +66,7 @@ def get_devices_in_group(server, token, device_group_id):
         if len(data.get("results", [])) < 10:  # If fewer than 10 devices, last page
             break
         page += 1
+    print(f"Total devices fetched: {len(devices)}")
     return devices
 
 # Function to export device configuration
@@ -122,30 +124,31 @@ def main():
                 print(f"Processing device: {device_name} ({management_ip})")
                 
                 try:
+                    # Step 1: Export and save device config
                     config_zip_content = export_device_config(server, token, device_id)
-                    
-                    # Save and extract ZIP
                     zip_path = f"{device_name}_config.zip"
                     with open(zip_path, "wb") as zipfile_handle:
                         zipfile_handle.write(config_zip_content)
                     
+                    # Step 2: Extract the ZIP
+                    extract_dir = f"./{device_name}_config"
                     with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                        zip_ref.extractall(f"./{device_name}_config")
+                        zip_ref.extractall(extract_dir)
                     
-                    # Locate and parse XML
-                    xml_file_path = f"./{device_name}_config/running"
+                    # Step 3: Locate and parse XML
+                    xml_file_path = os.path.join(extract_dir, "running")
                     if os.path.exists(xml_file_path):
                         with open(xml_file_path, "r") as xml_file:
                             xml_content = xml_file.read()
                             non_rfc1918_ips = extract_non_rfc1918_ips_from_xml(xml_content)
-                            if non_rfc1918_ips:  # Only write to CSV if there are valid IPs
+                            if non_rfc1918_ips:
                                 csvwriter.writerow([device_name, management_ip, ", ".join(non_rfc1918_ips)])
                     else:
                         print(f"XML file not found for {device_name}")
                     
-                    # Clean up
+                    # Step 4: Clean up files
                     os.remove(zip_path)
-                    os.system(f"rm -rf ./{device_name}_config")
+                    os.system(f"rm -rf {extract_dir}")
                 
                 except requests.exceptions.HTTPError as http_err:
                     if http_err.response.status_code == 404:
