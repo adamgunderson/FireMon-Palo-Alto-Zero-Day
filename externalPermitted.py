@@ -8,6 +8,7 @@ try:
     import xml.etree.ElementTree as ET
     import re
     import csv
+    from getpass import getpass
 except:
     try:
         sys.path.append('/usr/lib/firemon/devpackfw/lib/python3.9/site-packages')
@@ -17,6 +18,7 @@ except:
         import xml.etree.ElementTree as ET
         import re
         import csv
+        from getpass import getpass
     except:
         sys.path.append('/usr/lib/firemon/devpackfw/lib/python3.10/site-packages')
         import requests
@@ -25,6 +27,7 @@ except:
         import xml.etree.ElementTree as ET
         import re
         import csv
+        from getpass import getpass
 
 # Suppress SSL warnings
 requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
@@ -37,16 +40,16 @@ def get_auth_token(server, username, password):
     response.raise_for_status()
     return response.json()["token"]
 
-def fetch_device_group(server, token, domain_id, group_id, page):
-    url = f"https://{server}/securitymanager/api/domain/{domain_id}/device-groups/{group_id}/devices"
+def fetch_device_group(server, token, group_id, page):
+    url = f"https://{server}/securitymanager/api/domain/1/devicegroup/{group_id}/device"
     headers = {"X-FM-AUTH-Token": token, "Content-Type": "application/json"}
-    params = {"page": page, "size": 100}
+    params = {"page": page, "pageSize": 100}
     response = requests.get(url, headers=headers, params=params, verify=False)
     response.raise_for_status()
     return response.json()
 
-def export_device_config(server, token, domain_id, device_id):
-    url = f"https://{server}/securitymanager/api/domain/{domain_id}/devices/{device_id}/config/export"
+def export_device_config(server, token, device_id):
+    url = f"https://{server}/securitymanager/api/domain/1/device/{device_id}/export/config"
     headers = {"X-FM-AUTH-Token": token, "Content-Type": "application/json"}
     response = requests.get(url, headers=headers, verify=False)
     response.raise_for_status()
@@ -69,8 +72,7 @@ def extract_non_rfc1918_ips_from_permitted(xml_content):
 def main():
     server = input("Enter FireMon server (default: localhost): ") or "localhost"
     username = input("Enter username: ")
-    password = input("Enter password: ")
-    domain_id = input("Enter Domain ID: ")
+    password = getpass("Enter password: ")
     group_id = input("Enter Device Group ID: ")
 
     token = get_auth_token(server, username, password)
@@ -83,7 +85,7 @@ def main():
         page = 0
         while True:
             print(f"Fetching device group page {page}...")
-            devices = fetch_device_group(server, token, domain_id, group_id, page)
+            devices = fetch_device_group(server, token, group_id, page)
             if not devices["content"]:
                 break
 
@@ -94,7 +96,7 @@ def main():
 
                 print(f"Processing device {device_name} ({device_id})...")
                 try:
-                    config_zip_content = export_device_config(server, token, domain_id, device_id)
+                    config_zip_content = export_device_config(server, token, device_id)
                     zip_path = f"{device_name}_config.zip"
                     with open(zip_path, "wb") as zipfile_handle:
                         zipfile_handle.write(config_zip_content)
