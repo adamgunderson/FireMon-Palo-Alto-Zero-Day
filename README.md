@@ -36,7 +36,7 @@ Recent security advisories have emphasized the critical importance of restrictin
 
 1. Run the script:
 ```bash
-python management_interface_audit.py
+python3 management_interface_audit.py
 ```
 
 2. Enter the requested information:
